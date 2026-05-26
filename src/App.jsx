@@ -318,7 +318,7 @@ export default function App(){
     <input className="li" placeholder="Usuario" value={lFrm.username} onChange={e=>setLFrm({...lFrm,username:e.target.value})} onKeyDown={e=>e.key==="Enter"&&login()}/>
     <input className="li" type="password" placeholder="Contraseña" value={lFrm.password} onChange={e=>setLFrm({...lFrm,password:e.target.value})} onKeyDown={e=>e.key==="Enter"&&login()}/>
     <button className="lb" onClick={login}>Ingresar</button>
-    <div className="ld"><b>
+    </div></div></>);
 
   const fn=cur.fullName.split(" ")[0];const ini=cur.fullName.split(" ").map(n=>n[0]).join("").slice(0,2).toUpperCase();
   const rl={super_admin:"Coordinadora",admin:"Administrador",executive:"Ejecutivo"}[cur.role];
