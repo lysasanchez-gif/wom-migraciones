@@ -1,8 +1,9 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import * as XLSX from "xlsx";
+import { supabase } from "./lib/supabase";
 
 // ============================================================
-// WOM MIGRACIONES v5.0 — Con datos bancarios, apelaciones, filtro mes
+// WOM MIGRACIONES v6.0 — Conectado a Supabase
 // ============================================================
 
 const MOTIV = [
@@ -51,24 +52,11 @@ function wdL(){const t=new Date(),l=new Date(t.getFullYear(),t.getMonth()+1,0);l
 function fts(ts){return new Date(ts).toLocaleString("es-CL",{day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"});}
 function gMN(m){return["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"][m];}
 
-const U0=[
-  {id:1,fullName:"Coordinadora WOM",username:"admin",password:"admin123",role:"super_admin",active:true,bank:null},
-  {id:2,fullName:"Supervisor Operaciones",username:"supervisor",password:"super123",role:"admin",active:true,bank:null},
-  {id:3,fullName:"José Ángel Lugo Vázquez",username:"jalugov",password:"venta123",role:"executive",active:true,bank:{account:"01020100000000123456",holder:"José Ángel Lugo",cedula:"12345678",bankName:"Mercantil",type:"ahorro"}},
-  {id:4,fullName:"María Carolina Rodríguez P.",username:"mrodriguezp",password:"venta123",role:"executive",active:true,bank:null},
-  {id:5,fullName:"Carlos Eduardo Martínez L.",username:"cemartinezl",password:"venta123",role:"executive",active:true,bank:null},
-  {id:6,fullName:"Ana Gabriela Fernández D.",username:"agfernandezd",password:"venta123",role:"executive",active:true,bank:null},
-  {id:7,fullName:"Pedro José Sánchez M.",username:"pjsanchezm",password:"venta123",role:"executive",active:true,bank:null},
-  {id:8,fullName:"Laura Isabel Torres G.",username:"litorresg",password:"venta123",role:"executive",active:true,bank:null},
-];
-
-function genS(users){const s=[],ex=users.filter(u=>u.role==="executive"&&u.active);const t=new Date(),yr=t.getFullYear(),mo=t.getMonth();let id=1;
-ex.forEach(e=>{for(let d=1;d<=Math.min(t.getDate(),22);d++){const dt=new Date(yr,mo,d);if(dt.getDay()===0)continue;const n=Math.floor(Math.random()*8)+2;
-for(let i=0;i<n;i++){const st=d===t.getDate()?(Math.random()>.15?"ok":"pending"):["ok","ok","ok","ok","ok","ok","rejected","pending"][Math.floor(Math.random()*8)];
-s.push({id:id++,date:dt.toISOString().split("T")[0],executiveId:e.id,username:e.username,phone:`569${String(Math.floor(Math.random()*90000000)+10000000)}`,
-rut:String(Math.floor(Math.random()*900000000)+100000000),status:st,type:Math.random()>.92?"exception":"normal",
-isVDI:Math.random()<.08,vdiUser:null,rejectionReason:st==="rejected"?REJ_R[Math.floor(Math.random()*REJ_R.length)]:null,
-rejectionDetail:st==="rejected"?"Requiere corrección":null,recoveryAction:null,recoveryComment:null,managedByExec:false,appealed:false});}}});return s;}
+// ---- Conversores Supabase row ↔ app object ----
+function rowToUser(r){return{id:r.id,fullName:r.full_name,username:r.username,password:r.password,role:r.role,active:r.active,bank:r.bank_account?{account:r.bank_account,holder:r.bank_holder,cedula:r.bank_cedula,bankName:r.bank_name,type:r.bank_type}:null};}
+function rowToSale(r){return{id:r.id,date:r.date,executiveId:r.executive_id,username:r.username,phone:r.phone,rut:r.rut,status:r.status,type:r.type,isVDI:r.is_vdi,vdiUser:r.vdi_user,rejectionReason:r.rejection_reason,rejectionDetail:r.rejection_detail,recoveryAction:r.recovery_action,recoveryComment:r.recovery_comment,managedByExec:r.managed_by_exec,appealed:r.appealed};}
+function rowToAgenda(r){return{id:r.id,executiveId:r.executive_id,clientName:r.client_name,phone:r.phone,callTime:r.call_time,date:r.date,note:r.note};}
+function rowToLog(r){return{id:r.id,ts:new Date(r.ts).getTime(),user:r.username,action:r.action,detail:r.detail};}
 
 const FN="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=DM+Sans:wght@300;400;500;600;700&display=swap";
 const CSS=`@import url('${FN}');
@@ -157,6 +145,7 @@ td{padding:11px 16px;font-size:13px;border-bottom:1px solid #f3f1f8}tr:last-chil
 .ag-item{background:var(--cd);border:1px solid var(--bd);border-radius:12px;padding:16px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;gap:12px}
 .bank-card{background:linear-gradient(135deg,#1a0a2e,#3b0764);border-radius:16px;padding:24px;color:#fff;margin-bottom:24px}
 .bank-label{font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--pk);margin-bottom:4px}.bank-val{font-size:16px;font-weight:600;letter-spacing:1px}
+.loading-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--sf)}.spinner{width:40px;height:40px;border:4px solid var(--bd);border-top-color:var(--vi);border-radius:50%;animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
 @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}.fade{animation:fadeIn .3s ease}
 @media(max-width:900px){.sb{width:220px}:root{--sw:220px}.tc{grid-template-columns:1fr}.mn{padding:20px}}
 @media(max-width:640px){.sb{display:none}:root{--sw:0px}.mn{margin-left:0}.mg{grid-template-columns:1fr 1fr}}`;
@@ -183,10 +172,10 @@ trash:<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentC
 };return d[n]||null;};
 
 export default function App(){
-  const[users,setUsers]=useState(U0);
-  const[sales,setSales]=useState(()=>genS(U0));
-  const[logs,setLogs]=useState([{id:1,ts:Date.now()-3600000,user:"admin",action:"login",detail:"Inicio de sesión"},{id:2,ts:Date.now()-2800000,user:"jalugov",action:"sale",detail:"Registró venta - Tel: 56912345678"}]);
-  const[agendas,setAgendas]=useState([{id:1,executiveId:3,clientName:"Carlos Mendoza",phone:"56998765432",callTime:"14:30",date:tdy(),note:"Pedir documentos"}]);
+  const[users,setUsers]=useState([]);
+  const[sales,setSales]=useState([]);
+  const[logs,setLogs]=useState([]);
+  const[agendas,setAgendas]=useState([]);
   const[cur,setCur]=useState(null);
   const[pg,setPg]=useState("dashboard");
   const[showCU,setShowCU]=useState(false);
@@ -220,16 +209,61 @@ export default function App(){
   const[bankFrm,setBankFrm]=useState({account:"",holder:"",cedula:"",bankName:"",type:"ahorro"});
   const[bankErr,setBankErr]=useState({});
   const[bankOk,setBankOk]=useState(false);
+  const[loading,setLoading]=useState(false);
   const fRef=useRef();
 
-  const tMsg=useMemo(()=>{const d=Math.floor((new Date()-new Date(new Date().getFullYear(),0,0))/86400000);return MOTIV[d%MOTIV.length];},[]);
-  const addLog=useCallback((a,d)=>{setLogs(p=>[{id:Date.now(),ts:Date.now(),user:cur?.username||"sys",action:a,detail:d},...p]);},[cur]);
+  // ====================== SUPABASE DATA LAYER ======================
+  const loadUsers=useCallback(async()=>{
+    const{data}=await supabase.from("users").select("*").order("id");
+    if(data)setUsers(data.map(rowToUser));
+  },[]);
+  const loadSales=useCallback(async()=>{
+    const{data}=await supabase.from("sales").select("*").order("id",{ascending:false});
+    if(data)setSales(data.map(rowToSale));
+  },[]);
+  const loadAgendas=useCallback(async()=>{
+    const{data}=await supabase.from("agendas").select("*").order("date").order("call_time");
+    if(data)setAgendas(data.map(rowToAgenda));
+  },[]);
+  const loadLogs=useCallback(async()=>{
+    const{data}=await supabase.from("activity_log").select("*").order("ts",{ascending:false}).limit(200);
+    if(data)setLogs(data.map(rowToLog));
+  },[]);
+  const loadGoal=useCallback(async(uid)=>{
+    const{data}=await supabase.from("goals").select("amount").eq("executive_id",uid).maybeSingle();
+    if(data)setGoal(data.amount);else setGoal(200);
+  },[]);
 
-  const login=()=>{const u=users.find(x=>x.username===lFrm.username&&x.password===lFrm.password);if(!u){setLErr("Incorrecto");return;}if(!u.active){setLErr("Desactivada");return;}
-    setCur(u);setPg("dashboard");setLErr("");if(u.bank)setBankFrm({account:u.bank.account,holder:u.bank.holder,cedula:u.bank.cedula,bankName:u.bank.bankName,type:u.bank.type});};
-  const logout=()=>{setCur(null);setLFrm({username:"",password:""});setPg("dashboard");};
+  const loadAll=useCallback(async(uid)=>{
+    setLoading(true);
+    await Promise.all([loadUsers(),loadSales(),loadAgendas(),loadLogs(),loadGoal(uid)]);
+    setLoading(false);
+  },[loadUsers,loadSales,loadAgendas,loadLogs,loadGoal]);
+
+  const addLog=useCallback(async(a,d)=>{
+    const uname=cur?.username||"sys";
+    await supabase.from("activity_log").insert({username:uname,action:a,detail:d});
+    loadLogs();
+  },[cur,loadLogs]);
+
+  // ====================== AUTH ======================
+  const login=async()=>{
+    const{data,error}=await supabase.from("users").select("*").eq("username",lFrm.username).eq("password",lFrm.password).maybeSingle();
+    if(error||!data){setLErr("Incorrecto");return;}
+    const u=rowToUser(data);
+    if(!u.active){setLErr("Desactivada");return;}
+    setCur(u);setPg("dashboard");setLErr("");
+    if(u.bank)setBankFrm({account:u.bank.account,holder:u.bank.holder,cedula:u.bank.cedula,bankName:u.bank.bankName,type:u.bank.type});
+    await loadAll(u.id);
+    await supabase.from("activity_log").insert({username:u.username,action:"login",detail:"Inicio de sesión"});
+    loadLogs();
+  };
+  const logout=()=>{setCur(null);setLFrm({username:"",password:""});setPg("dashboard");setUsers([]);setSales([]);setLogs([]);setAgendas([]);};
   const isAdm=cur&&(cur.role==="super_admin"||cur.role==="admin");const isSA=cur&&cur.role==="super_admin";const isEx=cur&&cur.role==="executive";
 
+  const tMsg=useMemo(()=>{const d=Math.floor((new Date()-new Date(new Date().getFullYear(),0,0))/86400000);return MOTIV[d%MOTIV.length];},[]);
+
+  // ====================== STATS (computed from state, no change) ======================
   const getStats=useCallback((eid,mo,yr)=>{
     const m=mo??new Date().getMonth(),y=yr??new Date().getFullYear();
     const ms=sales.filter(s=>{const d=new Date(s.date);return s.executiveId===eid&&d.getMonth()===m&&d.getFullYear()===y;});
@@ -243,31 +277,50 @@ export default function App(){
     return exs.map(e=>{const st=getStats(e.id);let wc=0;if(period==="weekly")st.dailyCommissions.forEach(d=>{if(new Date(d.date)>=ws)wc+=d.commission;});
       return{...e,commission:period==="monthly"?st.totalCommission:wc};}).sort((a,b)=>b.commission-a.commission);},[users,getStats]);
 
+  // ====================== MUTATIONS → SUPABASE ======================
   const valSale=()=>{const e={};if(!sFrm.date)e.date="Requerido";if(!sFrm.phone)e.phone="Requerido";else if(!/^56\d{9}$/.test(sFrm.phone))e.phone="56 + 9 dígitos";
     if(!sFrm.rut)e.rut="Requerido";else if(!/^\d{7,9}$/.test(sFrm.rut))e.rut="Solo números";if(sFrm.isVDI&&!sFrm.vdiUser)e.vdiUser="Requerido";setSErr(e);return!Object.keys(e).length;};
-  const regSale=()=>{if(!valSale())return;setSales(p=>[{id:p.length+Date.now(),date:sFrm.date,executiveId:cur.id,username:cur.username,phone:sFrm.phone,rut:sFrm.rut,status:"pending",type:sFrm.type,isVDI:sFrm.isVDI,vdiUser:sFrm.isVDI?sFrm.vdiUser:null,rejectionReason:null,rejectionDetail:null,recoveryAction:null,recoveryComment:null,managedByExec:false,appealed:false},...p]);
-    addLog("sale",`Venta Tel: ${sFrm.phone}`);setSFrm({date:tdy(),phone:"",rut:"",isVDI:false,vdiUser:"",type:"normal"});setSErr({});setSOk(true);setTimeout(()=>setSOk(false),3000);};
 
-  const createUser=()=>{if(!nU.fullName||!nU.username||!nU.password)return;if(users.find(u=>u.username===nU.username))return;
-    setUsers(p=>[...p,{id:p.length+Date.now(),fullName:nU.fullName,username:nU.username,password:nU.password,role:nU.role,active:true,bank:null}]);addLog("user_create",`Creó ${nU.username}`);setNU({fullName:"",username:"",password:"",role:"executive"});setShowCU(false);};
-  const toggleUsr=(uid)=>{const u=users.find(x=>x.id===uid);setUsers(users.map(x=>x.id===uid?{...x,active:!x.active}:x));addLog("user_toggle",`${u.active?"Desactivó":"Reactivó"} ${u.username}`);};
-  const chgPw=()=>{if(!nP||!showCP)return;setUsers(users.map(x=>x.id===showCP?{...x,password:nP}:x));addLog("pw_change",`Cambió pw ${users.find(x=>x.id===showCP)?.username}`);setShowCP(null);setNP("");};
+  const regSale=async()=>{if(!valSale())return;
+    await supabase.from("sales").insert({date:sFrm.date,executive_id:cur.id,username:cur.username,phone:sFrm.phone,rut:sFrm.rut,status:"pending",type:sFrm.type,is_vdi:sFrm.isVDI,vdi_user:sFrm.isVDI?sFrm.vdiUser:null});
+    await addLog("sale",`Venta Tel: ${sFrm.phone}`);await loadSales();
+    setSFrm({date:tdy(),phone:"",rut:"",isVDI:false,vdiUser:"",type:"normal"});setSErr({});setSOk(true);setTimeout(()=>setSOk(false),3000);};
 
-  // Bank
-  const saveBank=()=>{const e={};if(!bankFrm.account)e.account="Requerido";else if(!/^\d{20}$/.test(bankFrm.account))e.account="Debe tener exactamente 20 dígitos";
+  const createUser=async()=>{if(!nU.fullName||!nU.username||!nU.password)return;if(users.find(u=>u.username===nU.username))return;
+    await supabase.from("users").insert({full_name:nU.fullName,username:nU.username,password:nU.password,role:nU.role,active:true});
+    await addLog("user_create",`Creó ${nU.username}`);await loadUsers();setNU({fullName:"",username:"",password:"",role:"executive"});setShowCU(false);};
+
+  const toggleUsr=async(uid)=>{const u=users.find(x=>x.id===uid);
+    await supabase.from("users").update({active:!u.active}).eq("id",uid);
+    await addLog("user_toggle",`${u.active?"Desactivó":"Reactivó"} ${u.username}`);await loadUsers();};
+
+  const chgPw=async()=>{if(!nP||!showCP)return;
+    await supabase.from("users").update({password:nP}).eq("id",showCP);
+    await addLog("pw_change",`Cambió pw ${users.find(x=>x.id===showCP)?.username}`);setShowCP(null);setNP("");};
+
+  const saveBank=async()=>{const e={};if(!bankFrm.account)e.account="Requerido";else if(!/^\d{20}$/.test(bankFrm.account))e.account="Debe tener exactamente 20 dígitos";
     if(!bankFrm.holder)e.holder="Requerido";if(!bankFrm.cedula)e.cedula="Requerido";if(!bankFrm.bankName)e.bankName="Requerido";setBankErr(e);if(Object.keys(e).length)return;
-    setUsers(users.map(u=>u.id===cur.id?{...u,bank:{...bankFrm}}:u));setCur({...cur,bank:{...bankFrm}});setBankOk(true);setTimeout(()=>setBankOk(false),3000);addLog("bank","Actualizó datos bancarios");};
+    await supabase.from("users").update({bank_account:bankFrm.account,bank_holder:bankFrm.holder,bank_cedula:bankFrm.cedula,bank_name:bankFrm.bankName,bank_type:bankFrm.type}).eq("id",cur.id);
+    const newBank={account:bankFrm.account,holder:bankFrm.holder,cedula:bankFrm.cedula,bankName:bankFrm.bankName,type:bankFrm.type};
+    setCur({...cur,bank:newBank});await loadUsers();setBankOk(true);setTimeout(()=>setBankOk(false),3000);await addLog("bank","Actualizó datos bancarios");};
 
-  // Recovery
-  const handleRecov=(sid,act)=>{setSales(sales.map(s=>s.id===sid?{...s,managedByExec:true,recoveryAction:act,recoveryComment:rjCmt}:s));
-    addLog("recovery",`${act==="recovered"?"Recuperó":"No recup."} ${sales.find(s=>s.id===sid)?.phone}`);setRjSel(null);setRjCmt("");setRjAct(null);};
-  // Appeal
-  const appealSale=(sid)=>{setSales(sales.map(s=>s.id===sid?{...s,appealed:true}:s));addLog("appeal",`Apeló venta ${sales.find(s=>s.id===sid)?.phone}`);};
+  const handleRecov=async(sid,act)=>{
+    await supabase.from("sales").update({managed_by_exec:true,recovery_action:act,recovery_comment:rjCmt}).eq("id",sid);
+    await addLog("recovery",`${act==="recovered"?"Recuperó":"No recup."} ${sales.find(s=>s.id===sid)?.phone}`);await loadSales();setRjSel(null);setRjCmt("");setRjAct(null);};
 
-  const saveEdit=()=>{if(!eS)return;setSales(sales.map(s=>s.id===eS?{...s,status:eFrm.status,rejectionReason:eFrm.status==="rejected"?eFrm.rr:null,rejectionDetail:eFrm.status==="rejected"?eFrm.rd:null}:s));
-    addLog("status_change",`${sales.find(s=>s.id===eS)?.phone} → ${eFrm.status}`);setES(null);};
+  const appealSale=async(sid)=>{
+    await supabase.from("sales").update({appealed:true}).eq("id",sid);
+    await addLog("appeal",`Apeló venta ${sales.find(s=>s.id===sid)?.phone}`);await loadSales();};
 
-  // Excel upload - now handles appealed sales
+  const saveEdit=async()=>{if(!eS)return;
+    const upd={status:eFrm.status,rejection_reason:eFrm.status==="rejected"?eFrm.rr:null,rejection_detail:eFrm.status==="rejected"?eFrm.rd:null};
+    await supabase.from("sales").update(upd).eq("id",eS);
+    await addLog("status_change",`${sales.find(s=>s.id===eS)?.phone} → ${eFrm.status}`);await loadSales();setES(null);};
+
+  const saveGoal=async(val)=>{setGoal(val);
+    await supabase.from("goals").upsert({executive_id:cur.id,amount:val,updated_at:new Date().toISOString()},{onConflict:"executive_id"});};
+
+  // Excel upload
   const handleUpload=(e)=>{const file=e.target.files[0];if(!file)return;const r=new FileReader();r.onload=(ev)=>{try{
     const wb=XLSX.read(ev.target.result,{type:"array"});const ws=wb.Sheets[wb.SheetNames[0]];
     const rows=XLSX.utils.sheet_to_json(ws,{header:["fecha","usuario","telefono","rut","estado","detalle","observacion"],range:1});
@@ -280,14 +333,18 @@ export default function App(){
         if(found.appealed&&st==="ok")appealedOk.push({saleId:found.id});}
       else{unmatched.push({fecha:row.fecha,usuario:row.usuario,phone:ph,rut,estado:st});}});
     setUData({matched,unmatched,updated,appealedOk,totalRows:rows.length});}catch{setUData({error:true});}};r.readAsArrayBuffer(file);};
-  const confirmUpload=()=>{if(!uData||uData.error)return;const ns=[...sales];
-    uData.matched.forEach(m=>{const i=ns.findIndex(s=>s.id===m.saleId);if(i>=0){
-      ns[i]={...ns[i],status:m.newStatus,rejectionReason:m.newStatus==="rejected"?m.detalle:null,rejectionDetail:m.newStatus==="rejected"?m.obs:null};
-      if(m.newStatus==="ok"){ns[i].managedByExec=false;ns[i].appealed=false;ns[i].recoveryAction=null;ns[i].recoveryComment=null;ns[i].rejectionReason=null;ns[i].rejectionDetail=null;}}});
-    setSales(ns);addLog("upload",`Excel: ${uData.matched.length} coinc, ${uData.updated.length} actual, ${uData.appealedOk.length} apeladas→OK, ${uData.unmatched.length} no enc`);
-    setURes({matched:uData.matched.length,updated:uData.updated.length,unmatched:uData.unmatched.length,appealedOk:uData.appealedOk.length});setUData(null);if(fRef.current)fRef.current.value="";};
 
-  // Exports
+  const confirmUpload=async()=>{if(!uData||uData.error)return;
+    for(const m of uData.matched){
+      const upd={status:m.newStatus};
+      if(m.newStatus==="rejected"){upd.rejection_reason=m.detalle;upd.rejection_detail=m.obs;}
+      if(m.newStatus==="ok"){upd.managed_by_exec=false;upd.appealed=false;upd.recovery_action=null;upd.recovery_comment=null;upd.rejection_reason=null;upd.rejection_detail=null;}
+      await supabase.from("sales").update(upd).eq("id",m.saleId);
+    }
+    await addLog("upload",`Excel: ${uData.matched.length} coinc, ${uData.updated.length} actual, ${uData.appealedOk.length} apeladas→OK, ${uData.unmatched.length} no enc`);
+    await loadSales();setURes({matched:uData.matched.length,updated:uData.updated.length,unmatched:uData.unmatched.length,appealedOk:uData.appealedOk.length});setUData(null);if(fRef.current)fRef.current.value="";};
+
+  // Exports (stay the same — read from state)
   const exportPayroll=()=>{if(!pRng.from||!pRng.to)return;const f=sales.filter(s=>s.date>=pRng.from&&s.date<=pRng.to);const execs=users.filter(u=>u.role==="executive");
     const detail=f.map(s=>{const ex=execs.find(e=>e.id===s.executiveId);return{Fecha:s.date,Ejecutivo:ex?.fullName||"",Usuario:s.username,Teléfono:s.phone,RUT:s.rut,Estado:s.status==="ok"?"OK":s.status==="rejected"?"Rechazada":"Pendiente",Detalle:s.rejectionReason||""};});
     const dates=[...new Set(f.map(s=>s.date))].sort();const commBD=[];
@@ -308,17 +365,23 @@ export default function App(){
     const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(d),"Ventas");XLSX.writeFile(wb,`Ventas_${tdy()}.xlsx`);};
   const dlTpl=()=>{const t=[{Fecha:"2026-05-24",Usuario:"jalugov",Teléfono:"56912345678",RUT:"183274765",Estado:"OK",Detalle:"",Observación:""}];const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(t),"Plantilla");XLSX.writeFile(wb,"Plantilla_WOM.xlsx");};
 
-  const addAg=()=>{if(!agFrm.clientName||!agFrm.phone||!agFrm.callTime)return;setAgendas(p=>[...p,{id:Date.now(),executiveId:cur.id,clientName:agFrm.clientName,phone:agFrm.phone,callTime:agFrm.callTime,date:agFrm.date||tdy(),note:agFrm.note}]);setAgFrm({clientName:"",phone:"",callTime:"",date:tdy(),note:""});setShowAgFrm(false);};
-  const delAg=(id)=>{setAgendas(agendas.filter(a=>a.id!==id));};
+  // Agendas
+  const addAg=async()=>{if(!agFrm.clientName||!agFrm.phone||!agFrm.callTime)return;
+    await supabase.from("agendas").insert({executive_id:cur.id,client_name:agFrm.clientName,phone:agFrm.phone,call_time:agFrm.callTime,date:agFrm.date||tdy(),note:agFrm.note||null});
+    await loadAgendas();setAgFrm({clientName:"",phone:"",callTime:"",date:tdy(),note:""});setShowAgFrm(false);};
+  const delAg=async(id)=>{await supabase.from("agendas").delete().eq("id",id);await loadAgendas();};
 
   const getFS=()=>{const now=new Date(),cm=now.getMonth(),cy=now.getFullYear();return sales.filter(s=>{const d=new Date(s.date);if(d.getMonth()!==cm||d.getFullYear()!==cy)return false;if(aFlt.exec&&s.username!==aFlt.exec)return false;if(aFlt.status&&s.status!==aFlt.status)return false;return true;}).sort((a,b)=>b.id-a.id);};
 
+  // ====================== LOGIN SCREEN ======================
   if(!cur)return (<><style>{CSS}</style><div className="lbg"><div className="lc fade"><div className="ll">WOM</div><div className="ls">Migraciones</div>
     {lErr&&<div className="le">{lErr}</div>}
     <input className="li" placeholder="Usuario" value={lFrm.username} onChange={e=>setLFrm({...lFrm,username:e.target.value})} onKeyDown={e=>e.key==="Enter"&&login()}/>
     <input className="li" type="password" placeholder="Contraseña" value={lFrm.password} onChange={e=>setLFrm({...lFrm,password:e.target.value})} onKeyDown={e=>e.key==="Enter"&&login()}/>
     <button className="lb" onClick={login}>Ingresar</button>
     </div></div></>);
+
+  if(loading)return(<><style>{CSS}</style><div className="loading-screen"><div className="spinner"/></div></>);
 
   const fn=cur.fullName.split(" ")[0];const ini=cur.fullName.split(" ").map(n=>n[0]).join("").slice(0,2).toUpperCase();
   const rl={super_admin:"Coordinadora",admin:"Administrador",executive:"Ejecutivo"}[cur.role];
@@ -406,7 +469,7 @@ export default function App(){
 
   const pgGoal=()=>{const st=getStats(cur.id);const prog=goal>0?Math.min((st.totalCommission/goal)*100,100):0;const rem=Math.max(goal-st.totalCommission,0);const wl=wdL();
     return (<div className="fade"><div className="ph"><div className="pg">Mi <span>Meta</span> 🎯</div></div><div style={{maxWidth:560}}><div className="cd" style={{padding:28}}>
-      <div className="fg"><label className="fl">Meta mensual (USD)</label><input type="number" className="fi" value={goal} onChange={e=>setGoal(Number(e.target.value))} style={{fontSize:24,fontFamily:"Outfit",fontWeight:700,textAlign:"center"}}/></div>
+      <div className="fg"><label className="fl">Meta mensual (USD)</label><input type="number" className="fi" value={goal} onChange={e=>saveGoal(Number(e.target.value))} style={{fontSize:24,fontFamily:"Outfit",fontWeight:700,textAlign:"center"}}/></div>
       <div className="pb" style={{height:16,background:"#e5e7eb"}}><div className="pf" style={{width:`${prog}%`}}/></div>
       <div style={{textAlign:"center",marginTop:20}}><div style={{fontSize:36,fontFamily:"Outfit",fontWeight:800,color:"var(--pu)"}}>{$(st.totalCommission)}</div><div style={{fontSize:14,color:"var(--mt)"}}>de {$(goal)}</div></div>
       <div style={{background:"#f8f7fc",borderRadius:12,padding:20,marginTop:20,textAlign:"center"}}><div style={{fontSize:20,fontWeight:700,fontFamily:"Outfit"}}>{rem>0?`Faltan ${$(rem)}`:"🎉 ¡Meta alcanzada!"}</div>
@@ -467,7 +530,6 @@ export default function App(){
       <div className="fg"><label className="fl">Observación</label><textarea className="fi" rows={2} value={eFrm.rd} onChange={e=>setEFrm({...eFrm,rd:e.target.value})}/></div></>}
       <div className="ma"><button className="bt bs" onClick={()=>setES(null)}>Cancelar</button><button className="bt bp" onClick={saveEdit}><Ic n="check" s={18}/> Guardar</button></div></div></div>}</div>);};
 
-  // ===== ADMIN REJECTIONS WITH APPEALED =====
   const pgARej=()=>{const rej=sales.filter(s=>s.status==="rejected");
     const unmanaged=rej.filter(s=>!s.managedByExec);const managed=rej.filter(s=>s.managedByExec&&!s.appealed);const appealed=rej.filter(s=>s.appealed);
     const shown=rejTab==="unmanaged"?unmanaged:rejTab==="managed"?managed:appealed;
